@@ -78,6 +78,7 @@ def main(argv):
     # set the random seed for the whole graph for reproductible experiments
     tf.set_random_seed(42)
 
+    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     # load the parameters from model's json file as a dict
     args = arg_parser(argv)
     json_path = os.path.join(args.model_dir, 'params.json')
@@ -86,23 +87,31 @@ def main(argv):
     params = Params(json_path).dict
     
     # check mode
-    modes = ['train', 'train_eval', 'eval', 'predict']
+    train_batch = params['train_batch']
+    modelPath = os.path.join(args.model_dir,"_".join(str(x) for x in train_batch))
+    if not os.path.exists(modelPath):
+        os.makedirs(modelPath)
+
+    modes = ['train', 'train_eval', 'eval', 'predict','train_pred']
     assert args.mode in modes, "mode has to be one of %s" % ','.join(modes) 
     
     # create logger, add loss and IOU to logging
-    logger = set_logger(os.path.join(args.model_dir, 'train.log'))
+    logger = set_logger(os.path.join(modelPath, 'train.log'))
     
     dataset = NiiDataset('/home/zhangke/dataset',params=params)
     # -------------------------------------------------------------------------
     # create model
     # -------------------------------------------------------------------------
-    
     model = tf.estimator.Estimator(
         model_fn=model_fn,
-        model_dir=args.model_dir,
+        model_dir=modelPath,
         params=params,
         config=tf.estimator.RunConfig(
-            log_step_count_steps=params['display_steps']
+            log_step_count_steps=params['display_steps'],
+            # session_config= tf.ConfigProto(
+            #     allow_soft_placement=True,
+            #     log_device_placement=True
+            # )
         )
     )
     
@@ -110,7 +119,7 @@ def main(argv):
     # train
     # -------------------------------------------------------------------------
     
-    if args.mode in ['train_eval', 'train']:
+    if args.mode in ['train_pred','train_eval', 'train']:
         dataset.load_train()
         model.train(
             input_fn=lambda: dataset.input_fun(True),
@@ -129,11 +138,13 @@ def main(argv):
     # predict
     # -------------------------------------------------------------------------
     
-    if args.mode == 'predict':
+    if args.mode in ['train_pred','predict']:
         dataset.load_test()
         predictions = model.predict(input_fn=lambda: dataset.input_fun(False))
 
-        pred_file = os.path.join(args.model_dir,'predict')
+        pred_file = os.path.join(modelPath,'predict')
+        if not os.path.exists(pred_file):
+            os.makedirs(pred_file)
         dataset.save_test_pred(prediction=predictions,savepath = pred_file)
         # extract predictions, only save predicted classes not probs
         logger.info('Predictions saved to: %s.' % pred_file)
