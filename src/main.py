@@ -78,7 +78,7 @@ def main(argv):
     # set the random seed for the whole graph for reproductible experiments
     tf.set_random_seed(42)
 
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     # load the parameters from model's json file as a dict
     args = arg_parser(argv)
     json_path = os.path.join(args.model_dir, 'params.json')
@@ -98,7 +98,7 @@ def main(argv):
     # create logger, add loss and IOU to logging
     logger = set_logger(os.path.join(modelPath, 'train.log'))
     
-    dataset = NiiDataset('/home/zhangke/dataset',params=params)
+    dataset = NiiDataset('/home/zhangke/datasets',params=params)
     # -------------------------------------------------------------------------
     # create model
     # -------------------------------------------------------------------------
@@ -108,10 +108,11 @@ def main(argv):
         params=params,
         config=tf.estimator.RunConfig(
             log_step_count_steps=params['display_steps'],
-            # session_config= tf.ConfigProto(
+            session_config= tf.ConfigProto(
             #     allow_soft_placement=True,
-            #     log_device_placement=True
-            # )
+            #     log_device_placement=True,
+            
+            )
         )
     )
     

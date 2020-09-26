@@ -277,7 +277,7 @@ class NiiDataset(object):
 
             depth = np.shape(nii_data.get_data())[-1]
             for r in volume:
-                pred = prediction[pre_i]['truth']
+                pred = prediction[pre_i]['classes']
                 pred = pred.astype(bool)
                 pred = skimage.img_as_bool(
                     skimage.transform.resize(
