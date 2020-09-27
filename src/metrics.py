@@ -5,6 +5,7 @@ import math
 import SimpleITK as sitk
 import nibabel
 import random
+import copy
 
 
 def save_array_as_volume(data, filename, reference_name = None):
@@ -13,6 +14,35 @@ def save_array_as_volume(data, filename, reference_name = None):
         img_ref = sitk.ReadImage(reference_name)
         img.CopyInformation(img_ref)
     sitk.WriteImage(img, filename)
+
+def dsc_similarity_coef(pred, label, argmax=True, num_classes=4):
+    if argmax:
+        pred = np.argmax(pred, axis=-1)
+        label = np.argmax(label, axis=-1)
+    shape = np.shape(pred)
+
+    pred_o = np.reshape(pred, [shape[0], shape[1] * shape[2]])
+    label_o = np.reshape(label, [shape[0], shape[1] * shape[2]])
+    dscs = []
+
+    for i in range(1, num_classes):
+        # not using copy is only address and change the origin value
+        seg = copy.copy(pred_o)
+        gt = copy.copy(label_o)
+        seg[seg != i] = 0
+        gt[gt != i] = 0
+        seg[seg == i] = 1
+        gt[gt == i] = 1
+
+        insection = sum(np.sum(seg * gt, axis=-1))
+        #print('insection', insection)
+        sum1 = sum(np.sum(seg, axis=-1) + np.sum(gt, axis=-1))
+        dsc_i = 2 * insection / sum1
+
+        #print('dsc_{}    :{:.5f}'.format(i, dsc_i))
+        dscs.append(dsc_i)
+
+    return dscs
 
 def dice_with_class(prediction, groundtruth, class_id):
     pred = np.copy(prediction)

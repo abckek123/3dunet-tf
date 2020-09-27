@@ -22,7 +22,6 @@ import argparse
 import tensorflow as tf
 
 from src.model_fn import model_fn
-from src.input_fn import input_fn2
 from src.utils import Params, set_logger
 
 from niiDataset import NiiDataset
@@ -38,12 +37,13 @@ def arg_parser(args):
     parser_desc = "Train, eval, predict 3D U-Net model."
     parser = argparse.ArgumentParser(description=parser_desc)
     
-    parser.add_argument(
-        '-model_dir', 
-        default='../models/base_model',
-        required=True,
-        help="Experiment directory containing params.json"
-    )
+    # parser.add_argument(
+    #     '-model_dir', 
+    #     default='../models/base_model',
+    #     required=True,
+    #     help="Experiment directory containing params.json"
+    # )
+
     parser.add_argument(
         '-mode', 
         default='train_eval',
@@ -78,17 +78,16 @@ def main(argv):
     # set the random seed for the whole graph for reproductible experiments
     tf.set_random_seed(42)
 
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     # load the parameters from model's json file as a dict
     args = arg_parser(argv)
-    json_path = os.path.join(args.model_dir, 'params.json')
+    json_path = os.path.join('models/base_model', 'params.json')
     assert os.path.isfile(
         json_path), "No json configuration file found at {}".format(json_path)
     params = Params(json_path).dict
     
     # check mode
     train_batch = params['train_batch']
-    modelPath = os.path.join(args.model_dir,"_".join(str(x) for x in train_batch))
+    modelPath = params['model_dir']
     if not os.path.exists(modelPath):
         os.makedirs(modelPath)
 
@@ -98,7 +97,9 @@ def main(argv):
     # create logger, add loss and IOU to logging
     logger = set_logger(os.path.join(modelPath, 'train.log'))
     
-    dataset = NiiDataset('/home/zhangke/datasets',params=params)
+    os.environ['CUDA_VISIBLE_DEVICES'] = params['CUDA_VISIBLE_DEVICES']
+    # dataset = NiiDataset('/home/zhangke/datasets',params=params)
+    dataset = NiiDataset(params=params)
     # -------------------------------------------------------------------------
     # create model
     # -------------------------------------------------------------------------
@@ -143,12 +144,12 @@ def main(argv):
         dataset.load_test()
         predictions = model.predict(input_fn=lambda: dataset.input_fun(False))
 
-        pred_file = os.path.join(modelPath,'predict')
-        if not os.path.exists(pred_file):
-            os.makedirs(pred_file)
-        dataset.save_test_pred(prediction=predictions,savepath = pred_file)
+        predictPath = params['predict_dir']
+        if not os.path.exists(predictPath):
+            os.makedirs(predictPath)
+        dataset.save_test_pred(prediction=predictions,savepath = predictPath)
         # extract predictions, only save predicted classes not probs
-        logger.info('Predictions saved to: %s.' % pred_file)
+        logger.info('Predictions saved to: %s.' % predictPath)
 
 
 if __name__ == '__main__':

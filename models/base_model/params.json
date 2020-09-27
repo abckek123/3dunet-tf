@@ -1,20 +1,38 @@
 {
-    "batch_size": 2,
-    "max_train_steps": 7000,
-    "display_steps": 70,
-    "learning_rate": 1e-3,
-    "train_dataset_path": "",
-    "test_dataset_path": "",
+    "CUDA_VISIBLE_DEVICES":"3",
 
-    "train_img_size": 128,
-    "max_scans": 48,
-    "num_classes": 2,
-    "class_weights":[0.69488,0.30512],
-    "_class_weights": [0.00438692, 0.67369458, 0.3219185],
+    "dataset_path":"/home/zhangke/experiment/datasets/grow_point/preprocessed/splitted",
+    "train_data_target":"head_image.nii.gz",
+    "train_label_target":"head_label.nii.gz",
+    "model_dir":"/home/zhangke/experiment/model/3dunet",
+    "predict_dir":"/home/zhangke/experiment/result/3dunet",
+
+    "train_img_size": [208,128],
+    "max_scans": 60,
+    "num_classes": 8,
+    "class_weights":[
+        0.9986520794382122, 
+        9.239530723905723e-05, 
+        0.00012922506818991195, 
+        0.00019757938459110335, 
+        3.597612240190365e-05, 
+        0.0006427329181235431, 
+        0.00020837316979895106, 
+        4.1638591443278945e-05
+    ],
+
+    "batch_size": 1,
+    "max_train_steps": 7000,
+    "display_steps": 10,
+    "learning_rate": 1e-3,
+
 
     "depth": 4,
     "n_base_filters": 32,
     "batch_norm": true,
+
+    "train_count":44,
+    "test_count":5,
 
     "train_batch":[0,1,2],
     "test_batch":[3]

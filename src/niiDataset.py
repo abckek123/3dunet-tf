@@ -9,6 +9,7 @@ import skimage
 import copy
 import metrics as me
 import math
+import pprint
 
 def normalize(data):
     min = np.min(data)
@@ -26,17 +27,46 @@ def chunks(arr, m):
     return [arr[i:i + n] for i in range(0, len(arr), n)]
 
 class NiiDataset(object):
-    def __init__(self , searchPath , params):
+    def __init__(self  , params):
         self.params = params
         self.overlap = 4
+        searchPath = self.params['dataset_path']
 
-        data_paths = glob.glob(str(os.path.join(searchPath,"**/ct.nii.gz")),recursive=True)
-        data_paths += glob.glob(str(os.path.join(searchPath,"**/0.nii.gz")),recursive=True)
+        # data_paths = glob.glob(str(os.path.join(searchPath,"**/ct.nii.gz")),recursive=True)
+        # data_paths += glob.glob(str(os.path.join(searchPath,"**/0.nii.gz")),recursive=True)
         
-        label_paths = glob.glob(str(os.path.join(searchPath,"**/label_ctv.nii.gz")),recursive=True)
-        label_paths += glob.glob(str(os.path.join(searchPath,"**/1.nii.gz")),recursive=True)
+        # label_paths = glob.glob(str(os.path.join(searchPath,"**/label_ctv.nii.gz")),recursive=True)
+        # label_paths += glob.glob(str(os.path.join(searchPath,"**/1.nii.gz")),recursive=True)
+
+        data_paths = glob.glob(
+            str(os.path.join(searchPath,"**",self.params['train_data_target'])),
+            recursive=True
+        )
+        data_paths.sort()
+        
+        label_paths = glob.glob(
+            str(os.path.join(searchPath,"**",self.params['train_label_target'])),
+            recursive=True
+        )
+        label_paths.sort()
+
+        self.splitTrainAndTestByCount(data_paths,label_paths)
+        
+        print('train datasets:')
+        pprint.pprint(self.train_paths[0])
+        print('test datasets:')
+        pprint.pprint(self.test_paths[0])
+       
+    
+    def splitTrainAndTestByCount(self,data_paths,label_paths):
+        train_count = self.params['train_count']
+        test_count = self.params['test_count']
+
+        self.train_paths = [data_paths[:train_count],label_paths[:train_count]]
+        self.test_paths = [data_paths[train_count:train_count+test_count],label_paths[train_count:train_count+test_count]]
 
 
+    def splitTrainAndTestByPartition(self,data_paths,label_paths):
         data_chunk = chunks(data_paths,4)
         label_chunk = chunks(label_paths,4)
 
@@ -53,7 +83,7 @@ class NiiDataset(object):
             self.test_paths[0] += data_chunk[batch]
             self.test_paths[1] += label_chunk[batch]
 
-        print(train_batch,test_batch)
+
 
     def load_train(self):
         self.train_niis = []
@@ -65,9 +95,11 @@ class NiiDataset(object):
         for i in range(len(self.test_paths[0])):
             self.test_niis.append((nb.load(self.test_paths[0][i]),nb.load(self.test_paths[1][i])))
 
-    def get_train_dataset(self):
+    def preprocess_train(self):
         max_s = self.params['max_scans']
-        w = h = self.params['train_img_size']
+        w , h = self.params['train_img_size']
+        n_classes = self.params['num_classes']
+
 
         datas = []
         labels = []
@@ -83,17 +115,18 @@ class NiiDataset(object):
             min , max, data = normalize(data)
             data = skimage.transform.resize(
                 image=data,
-                output_shape=(depth,w, w )
+                output_shape=(depth,w, h )
             )
+            data = np.expand_dims(data,-1)
+
 
             label = np.moveaxis(label,-1,0)
-            n_classes = label.max()+1
             label = (np.arange(n_classes) == label[...,None]).astype(bool)
 
             label = skimage.img_as_bool(
                 skimage.transform.resize(
                     image=label,
-                    output_shape=(depth,w, w,n_classes)
+                    output_shape=(depth,w, h,n_classes)
                 )
             )
 
@@ -108,13 +141,13 @@ class NiiDataset(object):
                 end = end if end < depth else depth
 
                 self.train_volume[i].append([begin,end])
-                data_volume = data[begin:end,:,:]
-                label_volume = label[begin:end,:,:]
+                data_volume = data[begin:end,:,:,:]
+                label_volume = label[begin:end,:,:,:]
 
                 d = end - begin
                 if d < max_s:
-                    zerod = np.zeros((max_s-d,w,w))
-                    zerol = np.zeros((max_s-d,w,w,n_classes))
+                    zerod = np.zeros((max_s-d,w,h,1))
+                    zerol = np.zeros((max_s-d,w,h,n_classes))
                     data_volume = np.concatenate((data_volume,zerod))
                     label_volume = np.concatenate((label_volume,zerol))
 
@@ -125,12 +158,26 @@ class NiiDataset(object):
                 
             print("preprocess train data %s"%i)
                     
-        datas = np.asarray(datas,dtype=np.float32)
-        labels = np.asarray(labels , dtype= np.int32)
+        self._datas = np.asarray(datas,dtype=np.float32)
+        self._labels = np.asarray(labels , dtype= np.int32)
 
-        datas = np.expand_dims(datas,-1)
+    def train_data_gen(self):
+        for i in range(len(self._datas)):
+            yield (self._datas[i], self._labels[i])
 
-        dataset = tf.data.Dataset.from_tensor_slices((datas,labels)).shuffle(
+
+    def get_train_dataset(self):
+        max_s = self.params['max_scans']
+        w , h = self.params['train_img_size']
+        n_classes = self.params['num_classes']
+
+        self.preprocess_train()
+
+        dataset = tf.data.Dataset.from_generator(
+            self.train_data_gen,
+            output_shapes=((max_s,w,h,1),(max_s,w,h,n_classes)),
+            output_types=(tf.float32,tf.int32)
+        ).shuffle(
             buffer_size=24
         ).repeat().padded_batch(
             batch_size=self.params['batch_size'],
@@ -142,7 +189,8 @@ class NiiDataset(object):
 
     def get_test_dataset(self):
         max_s = self.params['max_scans']
-        w = h = self.params['train_img_size']
+        w , h = self.params['train_img_size']
+        n_classes = self.params['num_classes']
 
         datas = []
         labels = []
@@ -159,17 +207,17 @@ class NiiDataset(object):
             min,max,data = normalize(data)
             data = skimage.transform.resize(
                 image=data,
-                output_shape=(depth,w, w )
+                output_shape=(depth,w, h )
             )
-            
+            data = np.expand_dims(data,-1)
+      
             label = np.moveaxis(label,-1,0)
-            n_classes = label.max()+1
             label = (np.arange(n_classes) == label[...,None]).astype(bool)
 
             label = skimage.img_as_bool(
                 skimage.transform.resize(
                     image=label,
-                    output_shape=(depth,w, w,n_classes)
+                    output_shape=(depth,w, h,n_classes)
                 )
             )
 
@@ -184,13 +232,13 @@ class NiiDataset(object):
                 end = end if end < depth else depth
 
                 self.test_volume[i].append([begin,end])
-                data_volume = data[begin:end,:,:]
-                label_volume = label[begin:end,:,:]
+                data_volume = data[begin:end,:,:,:]
+                label_volume = label[begin:end,:,:,:]
 
                 d = end - begin
                 if d < max_s:
-                    zerod = np.zeros((max_s-d,w,w))
-                    zerol = np.zeros((max_s-d,w,w,n_classes))
+                    zerod = np.zeros((max_s-d,w,h,1))
+                    zerol = np.zeros((max_s-d,w,h,n_classes))
                     data_volume = np.concatenate((data_volume,zerod))
                     label_volume = np.concatenate((label_volume,zerol))
 
@@ -204,7 +252,6 @@ class NiiDataset(object):
         datas = np.asarray(datas,dtype=np.float32)
         labels = np.asarray(labels , dtype= np.int32)
 
-        datas = np.expand_dims(datas,-1)
 
         dataset = tf.data.Dataset.from_tensor_slices((datas,labels)).padded_batch(
             # we have different sized test scans so we need batch 1
@@ -263,6 +310,10 @@ class NiiDataset(object):
 
 
     def save_test_pred(self,prediction,savepath):
+        max_s = self.params['max_scans']
+        w , h = self.params['train_img_size']
+        n_classes = self.params['num_classes']
+
         dsc_s = 0
         dsc_ss = 0
         avd_s = 0
@@ -278,13 +329,15 @@ class NiiDataset(object):
             depth = np.shape(nii_data.get_data())[-1]
             for r in volume:
                 pred = prediction[pre_i]['classes']
-                pred = pred.astype(bool)
-                pred = skimage.img_as_bool(
-                    skimage.transform.resize(
-                        image=pred,
-                        output_shape=(max_s,512, 512 )
-                    )
+                # pred = pred.astype(bool)
+                # pred = skimage.img_as_bool(
+                pred = skimage.transform.resize(
+                    image=pred,
+                    output_shape=(max_s,416, 256 ),
+                    order=0,
+                    preserve_range=True
                 )
+                # )
                 pred = pred.astype('int16')
 
                 if r[0]==0:
@@ -300,11 +353,12 @@ class NiiDataset(object):
 
             gt = nii_label.get_data()
             dsc_label_1g = me.dice_with_class(template,gt,1)
+            dsc = me.dsc_similarity_coef(template,gt,False,n_classes)
             avd = me.avd_with_class(template,gt,1)
             hd = me.hd_with_class(template,gt,1)
 
-            patient = re.match(r".*/(\w+)/.*?.nii.gz",self.test_paths[0][i]).group(1)
-            print("%s\t\tdsc:%.4f\tavd:%.4f\thd:%.4f"%(patient,dsc_label_1g,avd,hd))
+            patient = re.match(r".*/(.+)/.*?.nii.gz",self.test_paths[0][i]).group(1)
+            print("%s\t\tdsc:%s\tdsc1:%.4f\tavd:%.4f\thd:%.4f"%(patient,str(dsc),dsc_label_1g,avd,hd))
 
             save_nii = nb.Nifti1Image(template, nii_data.affine)
             nb.save(save_nii,os.path.join(savepath,"%s_pred.nii.gz"%patient))
